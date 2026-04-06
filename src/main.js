@@ -262,7 +262,13 @@ function isObeysGrammar(prefMorph, stemMorph, suffMorph){
 
 // Loading dictionary
 
-var initialized = false;
+var EXTENSION_STATES = {
+    LOADING: 'loading',
+    READY: 'ready',
+    ERROR: 'error'
+};
+
+var extensionState = EXTENSION_STATES.LOADING;
 var dictstems;
 var dictprefs;
 var dictsuffs;
@@ -270,7 +276,12 @@ var tableab;
 var tablebc;
 var tableac;
 
+function setExtensionState(state){
+    extensionState = state;
+}
+
 function loadDictData() {
+    setExtensionState(EXTENSION_STATES.LOADING);
     var f = [];
     f[0] = createDictTableFromFile('data/dictstems');
     f[1] = createDictTableFromFile('data/dictprefixes');
@@ -285,7 +296,11 @@ function loadDictData() {
         tableab = values[3];
         tablebc = values[4];
         tableac = values[5];
-        initialized = true;
+        setExtensionState(EXTENSION_STATES.READY);
+    }).catch(function(error){
+        setExtensionState(EXTENSION_STATES.ERROR);
+        console.error('Dictionary load failed:', error);
+        throw error;
     });
 
 };
@@ -356,9 +371,11 @@ function wrapArabicWords(){
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
+        if(extensionState === EXTENSION_STATES.ERROR){
+            elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
+            continue;
+        }
         new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
-
-
     }
 
 
@@ -366,8 +383,13 @@ function wrapArabicWords(){
 
 function initialize(){
     loadDictData().then(function(){
+        if(extensionState === EXTENSION_STATES.READY){
+            setTimeout(wrapArabicWords, 0);
+        }
+    }).catch(function(){
+        console.warn('Dictionary extension is in error state. Tooltips will be disabled.');
         setTimeout(wrapArabicWords, 0);
-    })
+    });
 }
 
 
@@ -377,4 +399,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
