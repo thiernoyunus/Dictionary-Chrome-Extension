@@ -208,6 +208,57 @@ function lookup(word){
     return data;
 }
 
+var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
+var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
+var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
+
+function normalizeArabicToken(text){
+    if(!text){
+        return "";
+    }
+
+    return text
+        .replace(zeroWidthCharsRegex, "")
+        .replace(/\u0640/g, "")               // tatweel
+        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627") // آ،أ،إ،ٱ -> ا
+        .replace(trimPunctuationRegex, "")
+        .trim();
+}
+
+function deDiacritizeArabic(text){
+    return text.replace(arabicDiacriticsRegex, "");
+}
+
+function stemFriendlyNormalize(text){
+    // conservative fallback: unify final variants often found in stem dict entries
+    return text
+        .replace(/\u0649/g, "\u064A") // ى -> ي
+        .replace(/\u0629/g, "\u0647"); // ة -> ه
+}
+
+function lookupWithFallback(text){
+    var normalized = normalizeArabicToken(text);
+    var candidates = [normalized];
+
+    var dediac = deDiacritizeArabic(normalized);
+    if(dediac && candidates.indexOf(dediac) === -1){
+        candidates.push(dediac);
+    }
+
+    var stemFriendly = stemFriendlyNormalize(dediac);
+    if(stemFriendly && candidates.indexOf(stemFriendly) === -1){
+        candidates.push(stemFriendly);
+    }
+
+    for(var i = 0; i < candidates.length; i++){
+        var found = lookup(candidates[i]);
+        if(found.length){
+            return found;
+        }
+    }
+    return [];
+}
+
 function lookupPrefStemSuff(pref, stem, suff){
     var prefMatches = dictprefs.get(pref);
     var stemMatches = dictstems.get(stem);
@@ -291,10 +342,6 @@ function loadDictData() {
 };
 
 // injecting code
-var arabicChars = "";
-for(var char in uni2buck){
-    arabicChars += char;
-}
 
 function isArabicWord(text){
     return arabicWordRegex.test(text);
@@ -336,13 +383,19 @@ function wrapArabicWords(){
         a.push(curElem);
     }
     a.forEach(function(curElem){
-        var regex= new RegExp("([" + arabicChars+"]+)", "g");
+        var regex = /([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0640\u200C\u200D]+)/g;
 
-        var newHTML = curElem.nodeValue.replace(regex,
-            "<span class='arabic-wrapped-31245' " +
-            "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
-            "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"''" +
-            ">$1</span>");
+        var newHTML = curElem.nodeValue.replace(regex, function(match){
+            var normalizedToken = normalizeArabicToken(match);
+            if(!normalizedToken){
+                return match;
+            }
+
+            return "<span class='arabic-wrapped-31245' data-normalized-token='" + normalizedToken + "' " +
+                "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
+                "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"''" +
+                ">" + normalizedToken + "</span>";
+        });
         if(newHTML == curElem.nodeValue){
             return;
         }
@@ -356,7 +409,8 @@ function wrapArabicWords(){
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
-        new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
+        var normalizedToken = elem.getAttribute('data-normalized-token') || normalizeArabicToken(elem.textContent);
+        new Opentip(elem, createDefintionsHTML(lookupWithFallback(normalizedToken)), {style:'glass'});
 
 
     }
@@ -377,4 +431,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
