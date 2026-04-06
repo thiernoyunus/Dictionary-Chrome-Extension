@@ -331,7 +331,38 @@ function createDefintionsHTML(data){
 function wrapArabicWords(){
     // puts spans around arabic words
 
-    var curElem, a=[], walk=document.createTreeWalker( document.documentElement, NodeFilter.SHOW_TEXT, null, false);
+    var skipTags = {
+        SCRIPT: true,
+        STYLE: true,
+        NOSCRIPT: true,
+        TEXTAREA: true,
+        INPUT: true,
+        CODE: true,
+        PRE: true
+    };
+    var textNodeFilter = {
+        acceptNode: function(node){
+            if(!node || !node.parentNode){
+                return NodeFilter.FILTER_REJECT;
+            }
+
+            var parentElement = node.parentElement;
+            if(parentElement && parentElement.closest('.arabic-wrapped-31245, .opentip-container, [contenteditable]')){
+                return NodeFilter.FILTER_REJECT;
+            }
+
+            var current = node.parentNode;
+            while(current && current.nodeType === Node.ELEMENT_NODE){
+                if(skipTags[current.tagName]){
+                    return NodeFilter.FILTER_REJECT;
+                }
+                current = current.parentNode;
+            }
+
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    };
+    var curElem, a=[], walk=document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT, textNodeFilter, false);
     while(curElem=walk.nextNode()){
         a.push(curElem);
     }
@@ -377,4 +408,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
