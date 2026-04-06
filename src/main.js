@@ -328,45 +328,196 @@ function createDefintionsHTML(data){
     return str;
 }
 
-function wrapArabicWords(){
-    // puts spans around arabic words
+var wrappedElements = new Set();
+var tooltipInstances = new Map();
+var mutationObserver = null;
+var mutationBatchTimer = null;
+var pendingMutationRoots = new Set();
+var suppressMutationHandling = false;
 
-    var curElem, a=[], walk=document.createTreeWalker( document.documentElement, NodeFilter.SHOW_TEXT, null, false);
-    while(curElem=walk.nextNode()){
-        a.push(curElem);
+function shouldSkipTextNode(textNode){
+    if(!textNode || !textNode.parentNode || !textNode.nodeValue){
+        return true;
     }
-    a.forEach(function(curElem){
-        var regex= new RegExp("([" + arabicChars+"]+)", "g");
+    if(!textNode.parentElement){
+        return false;
+    }
+    if(textNode.parentElement.closest('.arabic-wrapped-31245')){
+        return true;
+    }
+    var tagName = textNode.parentElement.tagName;
+    return tagName == 'SCRIPT'
+        || tagName == 'STYLE'
+        || tagName == 'NOSCRIPT'
+        || tagName == 'TEXTAREA';
+}
 
-        var newHTML = curElem.nodeValue.replace(regex,
-            "<span class='arabic-wrapped-31245' " +
-            "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
-            "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"''" +
-            ">$1</span>");
-        if(newHTML == curElem.nodeValue){
+function createWrappedSpan(arabicWord){
+    var wrapped = document.createElement('span');
+    wrapped.className = 'arabic-wrapped-31245';
+    wrapped.onmouseover = function(){
+        this.style.background = '#FFFF00';
+        this.style.color = 'black';
+    };
+    wrapped.onmouseout = function(){
+        this.style.background = 'transparent';
+        this.style.color = 'inherit';
+    };
+    wrapped.textContent = arabicWord;
+    return wrapped;
+}
+
+function addTooltipForElement(elem){
+    if(!elem || tooltipInstances.has(elem)){
+        return;
+    }
+    Opentip.lastZIndex = 1000000000;
+    var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
+    wrappedElements.add(elem);
+    tooltipInstances.set(elem, tip);
+}
+
+function disposeTooltipForElement(elem){
+    if(!elem){
+        return;
+    }
+    var tip = tooltipInstances.get(elem);
+    if(tip){
+        tip.deactivate();
+        if(tip.container && tip.adapter){
+            tip.adapter.remove(tip.container);
+        }
+    }
+    tooltipInstances.delete(elem);
+    wrappedElements.delete(elem);
+}
+
+function cleanupRemovedNode(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        disposeTooltipForElement(node);
+    }
+    var removedWrapped = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < removedWrapped.length; i++){
+        disposeTooltipForElement(removedWrapped[i]);
+    }
+}
+
+function wrapArabicWordsInTextNode(textNode){
+    if(shouldSkipTextNode(textNode)){
+        return;
+    }
+    var regex = new RegExp("([" + arabicChars + "]+)", "g");
+    var text = textNode.nodeValue;
+    regex.lastIndex = 0;
+    if(!regex.test(text)){
+        return;
+    }
+    var frag = document.createDocumentFragment();
+    regex.lastIndex = 0;
+    var lastIndex = 0;
+    var match;
+    while((match = regex.exec(text)) !== null){
+        if(match.index > lastIndex){
+            frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        var wrapped = createWrappedSpan(match[0]);
+        frag.appendChild(wrapped);
+        addTooltipForElement(wrapped);
+        lastIndex = regex.lastIndex;
+    }
+    if(lastIndex < text.length){
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    textNode.parentNode.replaceChild(frag, textNode);
+}
+
+function processNodeForArabicWords(node){
+    if(!node){
+        return;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        wrapArabicWordsInTextNode(node);
+        return;
+    }
+    if(node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        return;
+    }
+    var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+    var textNodes = [];
+    var curElem;
+    while(curElem = walker.nextNode()){
+        textNodes.push(curElem);
+    }
+    textNodes.forEach(function(textNode){
+        wrapArabicWordsInTextNode(textNode);
+    });
+}
+
+function flushMutationBatch(){
+    mutationBatchTimer = null;
+    var nodesToProcess = Array.from(pendingMutationRoots);
+    pendingMutationRoots.clear();
+    suppressMutationHandling = true;
+    nodesToProcess.forEach(function(node){
+        processNodeForArabicWords(node);
+    });
+    suppressMutationHandling = false;
+}
+
+function scheduleMutationBatch(node){
+    pendingMutationRoots.add(node);
+    if(mutationBatchTimer){
+        return;
+    }
+    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
+}
+
+function startMutationObserver(){
+    if(mutationObserver){
+        return;
+    }
+    mutationObserver = new MutationObserver(function(mutations){
+        if(suppressMutationHandling){
             return;
         }
-
-        var spanElem = document.createElement("span");
-        spanElem.innerHTML = newHTML;
-        curElem.parentNode.replaceChild(spanElem, curElem);
+        mutations.forEach(function(mutation){
+            if(mutation.type === 'childList'){
+                for(var i = 0; i < mutation.removedNodes.length; i++){
+                    cleanupRemovedNode(mutation.removedNodes[i]);
+                }
+                for(var j = 0; j < mutation.addedNodes.length; j++){
+                    scheduleMutationBatch(mutation.addedNodes[j]);
+                }
+            }
+            else if(mutation.type === 'characterData'){
+                scheduleMutationBatch(mutation.target);
+            }
+        });
     });
-	
-    Opentip.lastZIndex = 1000000000;
-    var elems = document.getElementsByClassName('arabic-wrapped-31245');
-    for(var i = 0; i < elems.length; i++){
-        var elem = elems[i];
-        new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
+    mutationObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+}
 
-
-    }
-
-
+function wrapArabicWords(){
+    // initial full-page wrapping pass
+    processNodeForArabicWords(document.documentElement);
 }
 
 function initialize(){
     loadDictData().then(function(){
-        setTimeout(wrapArabicWords, 0);
+        setTimeout(function(){
+            wrapArabicWords();
+            startMutationObserver();
+        }, 0);
     })
 }
 
@@ -377,4 +528,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
