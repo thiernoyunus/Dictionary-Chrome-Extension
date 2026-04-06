@@ -337,19 +337,36 @@ function wrapArabicWords(){
     }
     a.forEach(function(curElem){
         var regex= new RegExp("([" + arabicChars+"]+)", "g");
+        var text = curElem.nodeValue;
+        var match;
+        var lastIndex = 0;
+        var fragment = document.createDocumentFragment();
+        var hasArabicWord = false;
 
-        var newHTML = curElem.nodeValue.replace(regex,
-            "<span class='arabic-wrapped-31245' " +
-            "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
-            "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"''" +
-            ">$1</span>");
-        if(newHTML == curElem.nodeValue){
+        while ((match = regex.exec(text)) !== null) {
+            hasArabicWord = true;
+
+            if(match.index > lastIndex){
+                fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+            }
+
+            var wrappedWordElem = document.createElement("span");
+            wrappedWordElem.className = "arabic-wrapped-31245";
+            wrappedWordElem.textContent = match[0];
+            fragment.appendChild(wrappedWordElem);
+
+            lastIndex = regex.lastIndex;
+        }
+
+        if(!hasArabicWord){
             return;
         }
 
-        var spanElem = document.createElement("span");
-        spanElem.innerHTML = newHTML;
-        curElem.parentNode.replaceChild(spanElem, curElem);
+        if(lastIndex < text.length){
+            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+        }
+
+        curElem.parentNode.replaceChild(fragment, curElem);
     });
 	
     Opentip.lastZIndex = 1000000000;
@@ -377,4 +394,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
