@@ -328,6 +328,64 @@ function createDefintionsHTML(data){
     return str;
 }
 
+var tooltipRegistry = [];
+var tooltipByElement = new WeakMap();
+var tooltipListenersAttached = false;
+var activeTooltip = null;
+
+function closeTooltip(opentipInstance){
+    if(!opentipInstance){
+        return;
+    }
+    if(typeof opentipInstance.hide === 'function'){
+        opentipInstance.hide();
+    }
+    else if(typeof opentipInstance.deactivate === 'function'){
+        opentipInstance.deactivate();
+    }
+}
+
+function closeAllTooltips(exceptTip){
+    tooltipRegistry.forEach(function(opentipInstance){
+        if(opentipInstance !== exceptTip){
+            closeTooltip(opentipInstance);
+        }
+    });
+    if(!exceptTip){
+        activeTooltip = null;
+    }
+}
+
+function attachTooltipListeners(){
+    if(tooltipListenersAttached){
+        return;
+    }
+
+    document.addEventListener('click', function(event){
+        var clickedInsideTooltip = event.target && event.target.closest && event.target.closest('.opentip-container');
+        var clickedWrappedWord = event.target && event.target.closest && event.target.closest('.arabic-wrapped-31245');
+        if(!clickedInsideTooltip && !clickedWrappedWord){
+            closeAllTooltips();
+        }
+    });
+
+    document.addEventListener('keydown', function(event){
+        if(event.key === 'Escape' || event.keyCode === 27){
+            closeAllTooltips();
+        }
+    });
+
+    window.addEventListener('scroll', function(){
+        closeAllTooltips();
+    }, true);
+
+    window.addEventListener('resize', function(){
+        closeAllTooltips();
+    });
+
+    tooltipListenersAttached = true;
+}
+
 function wrapArabicWords(){
     // puts spans around arabic words
 
@@ -353,10 +411,29 @@ function wrapArabicWords(){
     });
 	
     Opentip.lastZIndex = 1000000000;
+    attachTooltipListeners();
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
-        new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
+        if(tooltipByElement.has(elem)){
+            continue;
+        }
+
+        var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
+            style: 'glass',
+            showOn: 'click',
+            hideTrigger: 'closeButton'
+        });
+
+        var originalShow = tip.show;
+        tip.show = function(){
+            closeAllTooltips(this);
+            activeTooltip = this;
+            return originalShow.apply(this, arguments);
+        };
+
+        tooltipRegistry.push(tip);
+        tooltipByElement.set(elem, tip);
 
 
     }
@@ -377,4 +454,3 @@ initialize();
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
 //TODO bug in roots
 //TODO escape html
-
