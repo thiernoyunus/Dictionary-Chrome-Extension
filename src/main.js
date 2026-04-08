@@ -352,6 +352,59 @@ function createDefintionsHTML(data){
     return str;
 }
 
+var tooltipByElement = new WeakMap();
+var tooltipListenersAttached = false;
+var activeTooltip = null;
+
+function closeTooltip(opentipInstance){
+    if(!opentipInstance){
+        return;
+    }
+    if(typeof opentipInstance.hide === 'function'){
+        opentipInstance.hide();
+    }
+    else if(typeof opentipInstance.deactivate === 'function'){
+        opentipInstance.deactivate();
+    }
+}
+
+function closeAllTooltips(exceptTip){
+    if(activeTooltip && activeTooltip !== exceptTip){
+        closeTooltip(activeTooltip);
+        activeTooltip = null;
+    }
+}
+
+function attachTooltipListeners(){
+    if(tooltipListenersAttached){
+        return;
+    }
+
+    document.addEventListener('click', function(event){
+        var clickedInsideTooltip = event.target && event.target.closest && event.target.closest('.opentip-container');
+        var clickedWrappedWord = event.target && event.target.closest && event.target.closest('.arabic-wrapped-31245');
+        if(!clickedInsideTooltip && !clickedWrappedWord){
+            closeAllTooltips();
+        }
+    });
+
+    document.addEventListener('keydown', function(event){
+        if(event.key === 'Escape' || event.keyCode === 27){
+            closeAllTooltips();
+        }
+    });
+
+    window.addEventListener('scroll', function(){
+        closeAllTooltips();
+    }, true);
+
+    window.addEventListener('resize', function(){
+        closeAllTooltips();
+    });
+
+    tooltipListenersAttached = true;
+}
+
 function wrapArabicWords(){
     // puts spans around arabic words
 
@@ -439,14 +492,51 @@ function wrapArabicWords(){
     });
 	
     Opentip.lastZIndex = 1000000000;
+    attachTooltipListeners();
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
+        if(tooltipByElement.has(elem)){
+            continue;
+        }
+
         if(extensionState !== EXTENSION_STATES.READY){
             elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
             continue;
         }
-        new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
+
+        var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
+            style: 'glass'
+        });
+
+        var originalShow = tip.show;
+        tip.show = function(){
+            closeAllTooltips(this);
+            activeTooltip = this;
+            return originalShow.apply(this, arguments);
+        };
+
+        if(typeof tip.hide === 'function'){
+            var originalHide = tip.hide;
+            tip.hide = function(){
+                if(activeTooltip === this){
+                    activeTooltip = null;
+                }
+                return originalHide.apply(this, arguments);
+            };
+        }
+
+        if(typeof tip.deactivate === 'function'){
+            var originalDeactivate = tip.deactivate;
+            tip.deactivate = function(){
+                if(activeTooltip === this){
+                    activeTooltip = null;
+                }
+                return originalDeactivate.apply(this, arguments);
+            };
+        }
+
+        tooltipByElement.set(elem, tip);
     }
 
 
