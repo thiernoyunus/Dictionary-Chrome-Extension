@@ -332,7 +332,52 @@ function createDefintionsHTML(data){
 function wrapArabicWords(){
     // puts spans around arabic words
 
-    var curElem, a=[], walk=document.createTreeWalker( document.documentElement, NodeFilter.SHOW_TEXT, null, false);
+    var skipTags = {
+        SCRIPT: true,
+        STYLE: true,
+        NOSCRIPT: true,
+        TEXTAREA: true,
+        INPUT: true,
+        CODE: true,
+        PRE: true
+    };
+    function isEditableElement(element){
+        if(!element || !element.getAttribute){
+            return false;
+        }
+
+        var attrValue = element.getAttribute('contenteditable');
+        if(attrValue === null){
+            return false;
+        }
+
+        attrValue = attrValue.toLowerCase();
+        return attrValue === '' || attrValue === 'true' || attrValue === 'plaintext-only';
+    }
+    var textNodeFilter = {
+        acceptNode: function(node){
+            if(!node || !node.parentNode){
+                return NodeFilter.FILTER_REJECT;
+            }
+
+            var current = node.parentNode;
+            while(current && current.nodeType === Node.ELEMENT_NODE){
+                if(skipTags[current.tagName]){
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if(current.classList && (current.classList.contains('arabic-wrapped-31245') || current.classList.contains('opentip-container'))){
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if(isEditableElement(current)){
+                    return NodeFilter.FILTER_REJECT;
+                }
+                current = current.parentNode;
+            }
+
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    };
+    var curElem, a=[], walk=document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT, textNodeFilter, false);
     while(curElem=walk.nextNode()){
         a.push(curElem);
     }
