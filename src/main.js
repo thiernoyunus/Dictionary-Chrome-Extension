@@ -42,27 +42,23 @@ function createMorphTableFromFile(path){
         readExtensionFile(path).then(function (text) {
             createMorphTableFromText(text).then(function(table){
                 resolve(table);
-            }).catch(reject);
-        }).catch(reject);
+            });
+        });
     });
 }
 
 function createMorphTableFromText(text){
     return new Promise(function(resolve, reject) {
         helper = function(){
-            try {
-                var lines = text.split('\n');
-                var table = new DictArray();
-                lines.forEach(function (line) {
-                    if (line != '' && line[0] != ';') {
-                        elems = line.split(/\s/);
-                        table.addItem(elems[0], elems[1]);
-                    }
-                });
-                resolve(table);
-            } catch (error) {
-                reject(error);
-            }
+            var lines = text.split('\n');
+            var table = new DictArray();
+            lines.forEach(function (line) {
+                if (line != '' && line[0] != ';') {
+                    elems = line.split(/\s/);
+                    table.addItem(elems[0], elems[1]);
+                }
+            });
+            resolve(table);
         }
         setTimeout(helper, 0);
     });
@@ -73,48 +69,44 @@ function createDictTableFromFile(path){
         readExtensionFile(path).then(function (text) {
             createDictTable(text).then(function(table){
                 resolve(table);
-            }).catch(reject);
-        }).catch(reject);
+            });
+        });
     });
 }
 
 function createDictTable(text){
     return new Promise(function(resolve, reject) {
         helper = function(){
-            try {
-                var lines = text.split('\n');
-                var table = new DictArray();
-                var root = '---';
-                lines.forEach(function (line) {
-                    if (line != '' && line[0] != ';') {
-                        var def = {};
-                        elems = line.split(/\s/);
+            var lines = text.split('\n');
+            var table = new DictArray();
+            var root = '---';
+            lines.forEach(function (line) {
+                if (line != '' && line[0] != ';') {
+                    var def = {};
+                    elems = line.split(/\s/);
 
-                        def.root = root;
-                        if(elems[1] == undefined){
-                            console.log('bad elem: ',elems);
-                        }
-                        def.word = elems[1].trim();
-                        def.morph = elems[2].trim();
-                        meta = elems.slice(3).join(' ').split(/ <pos>|<\/pos> /);
-                        def.def = meta[0].trim().split(/;/).join(', ');
-                        if(meta[1] == undefined){
-                            meta[1] = "";
-                        }
-                        def.pos = meta[1].trim();
-                        table.addItem(elems[0], def);
+                    def.root = root;
+                    if(elems[1] == undefined){
+                        console.log('bad elem: ',elems);
                     }
-                    else if(line != '' && line.trim() == ';'){
-                        root = '---';
+                    def.word = elems[1].trim();
+                    def.morph = elems[2].trim();
+                    meta = elems.slice(3).join(' ').split(/ <pos>|<\/pos> /);
+                    def.def = meta[0].trim().split(/;/).join(', ');
+                    if(meta[1] == undefined){
+                        meta[1] = "";
                     }
-                    else if(line != '' && line.slice(0,5) == ';--- '){
-                        root = line.split(/\s/)[1];
-                    }
-                });
-                resolve(table);
-            } catch (error) {
-                reject(error);
-            }
+                    def.pos = meta[1].trim();
+                    table.addItem(elems[0], def);
+                }
+                else if(line != '' && line.trim() == ';'){
+                    root = '---';
+                }
+                else if(line != '' && line.slice(0,5) == ';--- '){
+                    root = line.split(/\s/)[1];
+                }
+            });
+            resolve(table);
         }
         setTimeout(helper, 0);
     });
@@ -270,13 +262,7 @@ function isObeysGrammar(prefMorph, stemMorph, suffMorph){
 
 // Loading dictionary
 
-var EXTENSION_STATES = {
-    LOADING: 'loading',
-    READY: 'ready',
-    ERROR: 'error'
-};
-
-var extensionState = EXTENSION_STATES.LOADING;
+var initialized = false;
 var dictstems;
 var dictprefs;
 var dictsuffs;
@@ -284,12 +270,7 @@ var tableab;
 var tablebc;
 var tableac;
 
-function setExtensionState(state){
-    extensionState = state;
-}
-
 function loadDictData() {
-    setExtensionState(EXTENSION_STATES.LOADING);
     var f = [];
     f[0] = createDictTableFromFile('data/dictstems');
     f[1] = createDictTableFromFile('data/dictprefixes');
@@ -304,11 +285,7 @@ function loadDictData() {
         tableab = values[3];
         tablebc = values[4];
         tableac = values[5];
-        setExtensionState(EXTENSION_STATES.READY);
-    }).catch(function(error){
-        setExtensionState(EXTENSION_STATES.ERROR);
-        console.error('Dictionary load failed:', error);
-        throw error;
+        initialized = true;
     });
 
 };
@@ -355,6 +332,11 @@ function createDefintionsHTML(data){
 var tooltipByElement = new WeakMap();
 var tooltipListenersAttached = false;
 var activeTooltip = null;
+var mutationObserver = null;
+var mutationBatchTimer = null;
+var pendingMutationRoots = new Set();
+var pendingRemovedRoots = new Set();
+var suppressMutationHandling = false;
 
 function closeTooltip(opentipInstance){
     if(!opentipInstance){
@@ -405,147 +387,285 @@ function attachTooltipListeners(){
     tooltipListenersAttached = true;
 }
 
-function wrapArabicWords(){
-    // puts spans around arabic words
-
-    var skipTags = {
-        SCRIPT: true,
-        STYLE: true,
-        NOSCRIPT: true,
-        TEXTAREA: true,
-        INPUT: true,
-        CODE: true,
-        PRE: true
-    };
-    function isEditableElement(element){
-        if(!element || !element.getAttribute){
-            return false;
-        }
-
-        var attrValue = element.getAttribute('contenteditable');
-        if(attrValue === null){
-            return false;
-        }
-
-        attrValue = attrValue.toLowerCase();
-        return attrValue === '' || attrValue === 'true' || attrValue === 'plaintext-only';
+function shouldSkipTextNode(textNode){
+    if(!textNode || !textNode.parentNode || !textNode.nodeValue){
+        return true;
     }
-    var textNodeFilter = {
-        acceptNode: function(node){
-            if(!node || !node.parentNode){
-                return NodeFilter.FILTER_REJECT;
-            }
-
-            var current = node.parentNode;
-            while(current && current.nodeType === Node.ELEMENT_NODE){
-                if(skipTags[current.tagName]){
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if(current.classList && (current.classList.contains('arabic-wrapped-31245') || current.classList.contains('opentip-container'))){
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if(isEditableElement(current)){
-                    return NodeFilter.FILTER_REJECT;
-                }
-                current = current.parentNode;
-            }
-
-            return NodeFilter.FILTER_ACCEPT;
-        }
-    };
-    var curElem, a=[], walk=document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT, textNodeFilter, false);
-    while(curElem=walk.nextNode()){
-        a.push(curElem);
+    if(!textNode.parentElement){
+        return false;
     }
-    a.forEach(function(curElem){
-        var text = curElem.nodeValue;
-        var match;
-        var lastIndex = 0;
-        var fragment = document.createDocumentFragment();
-        var hasArabicWord = false;
-        arabicWordMatchRegex.lastIndex = 0;
+    if(textNode.parentElement.closest('.arabic-wrapped-31245, .opentip-container')){
+        return true;
+    }
+    var tagName = textNode.parentElement.tagName;
+    return tagName == 'SCRIPT'
+        || tagName == 'STYLE'
+        || tagName == 'NOSCRIPT'
+        || tagName == 'TEXTAREA';
+}
 
-        while ((match = arabicWordMatchRegex.exec(text)) !== null) {
-            hasArabicWord = true;
+function createWrappedSpan(arabicWord){
+    var wrapped = document.createElement('span');
+    wrapped.className = 'arabic-wrapped-31245';
+    wrapped.textContent = arabicWord;
+    return wrapped;
+}
 
-            if(match.index > lastIndex){
-                fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+function addTooltipForElement(elem){
+    if(!elem || tooltipByElement.has(elem)){
+        return;
+    }
+    if(extensionState !== EXTENSION_STATES.READY){
+        elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
+        return;
+    }
+
+    var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
+        style: 'glass'
+    });
+
+    var originalShow = tip.show;
+    tip.show = function(){
+        closeAllTooltips(this);
+        activeTooltip = this;
+        return originalShow.apply(this, arguments);
+    };
+
+    if(typeof tip.hide === 'function'){
+        var originalHide = tip.hide;
+        tip.hide = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
             }
+            return originalHide.apply(this, arguments);
+        };
+    }
 
-            var wrappedWordElem = document.createElement("span");
-            wrappedWordElem.className = "arabic-wrapped-31245";
-            wrappedWordElem.textContent = match[0];
-            fragment.appendChild(wrappedWordElem);
+    if(typeof tip.deactivate === 'function'){
+        var originalDeactivate = tip.deactivate;
+        tip.deactivate = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
+            }
+            return originalDeactivate.apply(this, arguments);
+        };
+    }
 
-            lastIndex = arabicWordMatchRegex.lastIndex;
+    tooltipByElement.set(elem, tip);
+}
+
+function disposeTooltipForElement(elem){
+    if(!elem){
+        return;
+    }
+    var tip = tooltipByElement.get(elem);
+    if(tip){
+        closeTooltip(tip);
+        if(tip.container && tip.adapter){
+            tip.adapter.remove(tip.container);
         }
+    }
+    tooltipByElement.delete(elem);
+}
 
-        if(!hasArabicWord){
+function cleanupRemovedNode(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        disposeTooltipForElement(node);
+    }
+    var removedWrapped = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < removedWrapped.length; i++){
+        disposeTooltipForElement(removedWrapped[i]);
+    }
+}
+
+function ensureTooltipForWrappedSubtree(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
+    }
+
+    var wrappedNodes = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < wrappedNodes.length; i++){
+        addTooltipForElement(wrappedNodes[i]);
+    }
+}
+
+function wrapArabicWordsInTextNode(textNode){
+    if(shouldSkipTextNode(textNode)){
+        return;
+    }
+    var text = textNode.nodeValue;
+    arabicWordMatchRegex.lastIndex = 0;
+    if(!arabicWordMatchRegex.test(text)){
+        return;
+    }
+    var frag = document.createDocumentFragment();
+    arabicWordMatchRegex.lastIndex = 0;
+    var lastIndex = 0;
+    var match;
+    while((match = arabicWordMatchRegex.exec(text)) !== null){
+        if(match.index > lastIndex){
+            frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        var wrapped = createWrappedSpan(match[0]);
+        frag.appendChild(wrapped);
+        addTooltipForElement(wrapped);
+        lastIndex = arabicWordMatchRegex.lastIndex;
+    }
+    if(lastIndex < text.length){
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    textNode.parentNode.replaceChild(frag, textNode);
+}
+
+function isNodeConnected(node){
+    if(!node){
+        return false;
+    }
+    if(node === document || node === document.documentElement){
+        return true;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        return !!node.parentNode && !!node.parentNode.isConnected;
+    }
+    return !!node.isConnected;
+}
+
+function processNodeForArabicWords(node){
+    if(!node){
+        return;
+    }
+    if(!isNodeConnected(node)){
+        return;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        wrapArabicWordsInTextNode(node);
+        return;
+    }
+    if(node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.closest && node.closest('.opentip-container')){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
+        return;
+    }
+    if(node.classList && node.classList.contains('opentip-container')){
+        return;
+    }
+
+    ensureTooltipForWrappedSubtree(node);
+
+    var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+    var textNodes = [];
+    var curElem;
+    while(curElem = walker.nextNode()){
+        textNodes.push(curElem);
+    }
+    textNodes.forEach(function(textNode){
+        wrapArabicWordsInTextNode(textNode);
+    });
+}
+
+function flushMutationBatch(){
+    mutationBatchTimer = null;
+    var nodesToProcess = Array.from(pendingMutationRoots);
+    pendingMutationRoots.clear();
+    var nodesToCleanup = Array.from(pendingRemovedRoots);
+    pendingRemovedRoots.clear();
+
+    suppressMutationHandling = true;
+    if(mutationObserver){
+        mutationObserver.disconnect();
+    }
+
+    nodesToCleanup.forEach(function(node){
+        if(!isNodeConnected(node)){
+            cleanupRemovedNode(node);
+        }
+    });
+
+    nodesToProcess.forEach(function(node){
+        if(isNodeConnected(node)){
+            processNodeForArabicWords(node);
+        }
+    });
+
+    if(mutationObserver){
+        mutationObserver.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+    }
+    suppressMutationHandling = false;
+}
+
+function scheduleMutationBatch(node){
+    if(!node){
+        return;
+    }
+    pendingMutationRoots.add(node);
+    if(mutationBatchTimer){
+        return;
+    }
+    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
+}
+
+function startMutationObserver(){
+    if(mutationObserver){
+        return;
+    }
+    mutationObserver = new MutationObserver(function(mutations){
+        if(suppressMutationHandling){
             return;
         }
-
-        if(lastIndex < text.length){
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-        }
-
-        curElem.parentNode.replaceChild(fragment, curElem);
-    });
-	
-    Opentip.lastZIndex = 1000000000;
-    attachTooltipListeners();
-    var elems = document.getElementsByClassName('arabic-wrapped-31245');
-    for(var i = 0; i < elems.length; i++){
-        var elem = elems[i];
-        if(tooltipByElement.has(elem)){
-            continue;
-        }
-
-        if(extensionState !== EXTENSION_STATES.READY){
-            elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
-            continue;
-        }
-
-        var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
-            style: 'glass'
+        mutations.forEach(function(mutation){
+            if(mutation.type === 'childList'){
+                for(var i = 0; i < mutation.removedNodes.length; i++){
+                    pendingRemovedRoots.add(mutation.removedNodes[i]);
+                }
+                for(var j = 0; j < mutation.addedNodes.length; j++){
+                    scheduleMutationBatch(mutation.addedNodes[j]);
+                }
+                if(mutation.removedNodes.length && !mutationBatchTimer){
+                    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
+                }
+            }
+            else if(mutation.type === 'characterData'){
+                scheduleMutationBatch(mutation.target);
+            }
         });
+    });
+    mutationObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+}
 
-        var originalShow = tip.show;
-        tip.show = function(){
-            closeAllTooltips(this);
-            activeTooltip = this;
-            return originalShow.apply(this, arguments);
-        };
-
-        if(typeof tip.hide === 'function'){
-            var originalHide = tip.hide;
-            tip.hide = function(){
-                if(activeTooltip === this){
-                    activeTooltip = null;
-                }
-                return originalHide.apply(this, arguments);
-            };
-        }
-
-        if(typeof tip.deactivate === 'function'){
-            var originalDeactivate = tip.deactivate;
-            tip.deactivate = function(){
-                if(activeTooltip === this){
-                    activeTooltip = null;
-                }
-                return originalDeactivate.apply(this, arguments);
-            };
-        }
-
-        tooltipByElement.set(elem, tip);
-    }
-
-
+function wrapArabicWords(){
+    // initial full-page wrapping pass
+    processNodeForArabicWords(document.documentElement);
 }
 
 function initialize(){
     loadDictData().then(function(){
         if(extensionState === EXTENSION_STATES.READY){
-            wrapArabicWords();
+            setTimeout(function(){
+                Opentip.lastZIndex = 1000000000;
+                attachTooltipListeners();
+                wrapArabicWords();
+                startMutationObserver();
+            }, 0);
         }
     }).catch(function(){
         console.warn('Dictionary extension is in error state. Native title tooltips will be used until dictionary data loads successfully.');
