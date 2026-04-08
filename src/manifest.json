@@ -1,22 +1,31 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Arabic Dictionary",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Look Up Arabic Words on the Fly!",
   "permissions": [],
   "web_accessible_resources": [
-    "data/tableab",
-    "data/tableac",
-    "data/tablebc",
-    "data/dictprefixes",
-    "data/dictstems",
-    "data/dictsuffixes"
+    {
+      "resources": [
+        "data/tableab",
+        "data/tableac",
+        "data/tablebc",
+        "data/dictprefixes",
+        "data/dictstems",
+        "data/dictsuffixes"
+      ],
+      "matches": ["<all_urls>"]
+    }
   ],
-  "icons": {"48": "icon48.png",
-          "128": "icon128.png" },
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["main.js", "libs/opentip-native.min.js"],
-    "css": ["libs/opentip.css", "main.css"]
-  }]
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["main.js", "libs/opentip-native.min.js"],
+      "css": ["libs/opentip.css", "main.css"]
+    }
+  ]
 }
