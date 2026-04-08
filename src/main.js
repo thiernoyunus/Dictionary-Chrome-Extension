@@ -211,7 +211,11 @@ function lookup(word){
 var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
 var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
 var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
-var arabicWrappingRegex = /([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0640\u200C\u200D]+)/g;
+var arabicChars = "";
+for(var char in uni2buck){
+    arabicChars += char;
+}
+var arabicWrappingRegex = new RegExp("([" + arabicChars + "]+)", "g");
 
 function sanitizeArabicToken(text){
     if(!text){
