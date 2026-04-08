@@ -334,6 +334,7 @@ var tooltipInstances = new Map();
 var mutationObserver = null;
 var mutationBatchTimer = null;
 var pendingMutationRoots = new Set();
+var pendingRemovedRoots = new Set();
 var suppressMutationHandling = false;
 
 function shouldSkipTextNode(textNode){
@@ -397,6 +398,21 @@ function cleanupRemovedNode(node){
     }
 }
 
+function ensureTooltipForWrappedSubtree(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
+    }
+
+    var wrappedNodes = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < wrappedNodes.length; i++){
+        addTooltipForElement(wrappedNodes[i]);
+    }
+}
+
 function wrapArabicWordsInTextNode(textNode){
     if(shouldSkipTextNode(textNode)){
         return;
@@ -455,9 +471,16 @@ function processNodeForArabicWords(node){
     if(node.closest && node.closest('.opentip-container')){
         return;
     }
-    if(node.classList && (node.classList.contains('arabic-wrapped-31245') || node.classList.contains('opentip-container'))){
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
         return;
     }
+    if(node.classList && node.classList.contains('opentip-container')){
+        return;
+    }
+
+    ensureTooltipForWrappedSubtree(node);
+
     var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
     var textNodes = [];
     var curElem;
@@ -473,12 +496,33 @@ function flushMutationBatch(){
     mutationBatchTimer = null;
     var nodesToProcess = Array.from(pendingMutationRoots);
     pendingMutationRoots.clear();
+    var nodesToCleanup = Array.from(pendingRemovedRoots);
+    pendingRemovedRoots.clear();
+
     suppressMutationHandling = true;
+    if(mutationObserver){
+        mutationObserver.disconnect();
+    }
+
+    nodesToCleanup.forEach(function(node){
+        if(!isNodeConnected(node)){
+            cleanupRemovedNode(node);
+        }
+    });
+
     nodesToProcess.forEach(function(node){
         if(isNodeConnected(node)){
             processNodeForArabicWords(node);
         }
     });
+
+    if(mutationObserver){
+        mutationObserver.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+    }
     suppressMutationHandling = false;
 }
 
@@ -504,10 +548,13 @@ function startMutationObserver(){
         mutations.forEach(function(mutation){
             if(mutation.type === 'childList'){
                 for(var i = 0; i < mutation.removedNodes.length; i++){
-                    cleanupRemovedNode(mutation.removedNodes[i]);
+                    pendingRemovedRoots.add(mutation.removedNodes[i]);
                 }
                 for(var j = 0; j < mutation.addedNodes.length; j++){
                     scheduleMutationBatch(mutation.addedNodes[j]);
+                }
+                if(mutation.removedNodes.length && !mutationBatchTimer){
+                    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
                 }
             }
             else if(mutation.type === 'characterData'){
