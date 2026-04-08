@@ -328,7 +328,6 @@ function createDefintionsHTML(data){
     return str;
 }
 
-var tooltipRegistry = [];
 var tooltipByElement = new WeakMap();
 var tooltipListenersAttached = false;
 var activeTooltip = null;
@@ -346,12 +345,8 @@ function closeTooltip(opentipInstance){
 }
 
 function closeAllTooltips(exceptTip){
-    tooltipRegistry.forEach(function(opentipInstance){
-        if(opentipInstance !== exceptTip){
-            closeTooltip(opentipInstance);
-        }
-    });
-    if(!exceptTip){
+    if(activeTooltip && activeTooltip !== exceptTip){
+        closeTooltip(activeTooltip);
         activeTooltip = null;
     }
 }
@@ -420,9 +415,7 @@ function wrapArabicWords(){
         }
 
         var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
-            style: 'glass',
-            showOn: 'click',
-            hideTrigger: 'closeButton'
+            style: 'glass'
         });
 
         var originalShow = tip.show;
@@ -432,7 +425,26 @@ function wrapArabicWords(){
             return originalShow.apply(this, arguments);
         };
 
-        tooltipRegistry.push(tip);
+        if(typeof tip.hide === 'function'){
+            var originalHide = tip.hide;
+            tip.hide = function(){
+                if(activeTooltip === this){
+                    activeTooltip = null;
+                }
+                return originalHide.apply(this, arguments);
+            };
+        }
+
+        if(typeof tip.deactivate === 'function'){
+            var originalDeactivate = tip.deactivate;
+            tip.deactivate = function(){
+                if(activeTooltip === this){
+                    activeTooltip = null;
+                }
+                return originalDeactivate.apply(this, arguments);
+            };
+        }
+
         tooltipByElement.set(elem, tip);
 
 
