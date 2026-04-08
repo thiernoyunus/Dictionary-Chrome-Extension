@@ -295,6 +295,7 @@ var arabicChars = "";
 for(var char in uni2buck){
     arabicChars += char;
 }
+var arabicWordMatchRegex = new RegExp("([" + arabicChars + "]+)", "g");
 
 function isArabicWord(text){
     return arabicWordRegex.test(text);
@@ -336,14 +337,14 @@ function wrapArabicWords(){
         a.push(curElem);
     }
     a.forEach(function(curElem){
-        var regex= new RegExp("([" + arabicChars+"]+)", "g");
         var text = curElem.nodeValue;
         var match;
         var lastIndex = 0;
         var fragment = document.createDocumentFragment();
         var hasArabicWord = false;
+        arabicWordMatchRegex.lastIndex = 0;
 
-        while ((match = regex.exec(text)) !== null) {
+        while ((match = arabicWordMatchRegex.exec(text)) !== null) {
             hasArabicWord = true;
 
             if(match.index > lastIndex){
@@ -355,7 +356,7 @@ function wrapArabicWords(){
             wrappedWordElem.textContent = match[0];
             fragment.appendChild(wrappedWordElem);
 
-            lastIndex = regex.lastIndex;
+            lastIndex = arabicWordMatchRegex.lastIndex;
         }
 
         if(!hasArabicWord){
