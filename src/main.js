@@ -42,23 +42,27 @@ function createMorphTableFromFile(path){
         readExtensionFile(path).then(function (text) {
             createMorphTableFromText(text).then(function(table){
                 resolve(table);
-            });
-        });
+            }).catch(reject);
+        }).catch(reject);
     });
 }
 
 function createMorphTableFromText(text){
     return new Promise(function(resolve, reject) {
         helper = function(){
-            var lines = text.split('\n');
-            var table = new DictArray();
-            lines.forEach(function (line) {
-                if (line != '' && line[0] != ';') {
-                    elems = line.split(/\s/);
-                    table.addItem(elems[0], elems[1]);
-                }
-            });
-            resolve(table);
+            try {
+                var lines = text.split('\n');
+                var table = new DictArray();
+                lines.forEach(function (line) {
+                    if (line != '' && line[0] != ';') {
+                        elems = line.split(/\s/);
+                        table.addItem(elems[0], elems[1]);
+                    }
+                });
+                resolve(table);
+            } catch (error) {
+                reject(error);
+            }
         }
         setTimeout(helper, 0);
     });
@@ -69,44 +73,48 @@ function createDictTableFromFile(path){
         readExtensionFile(path).then(function (text) {
             createDictTable(text).then(function(table){
                 resolve(table);
-            });
-        });
+            }).catch(reject);
+        }).catch(reject);
     });
 }
 
 function createDictTable(text){
     return new Promise(function(resolve, reject) {
         helper = function(){
-            var lines = text.split('\n');
-            var table = new DictArray();
-            var root = '---';
-            lines.forEach(function (line) {
-                if (line != '' && line[0] != ';') {
-                    var def = {};
-                    elems = line.split(/\s/);
+            try {
+                var lines = text.split('\n');
+                var table = new DictArray();
+                var root = '---';
+                lines.forEach(function (line) {
+                    if (line != '' && line[0] != ';') {
+                        var def = {};
+                        elems = line.split(/\s/);
 
-                    def.root = root;
-                    if(elems[1] == undefined){
-                        console.log('bad elem: ',elems);
+                        def.root = root;
+                        if(elems[1] == undefined){
+                            console.log('bad elem: ',elems);
+                        }
+                        def.word = elems[1].trim();
+                        def.morph = elems[2].trim();
+                        meta = elems.slice(3).join(' ').split(/ <pos>|<\/pos> /);
+                        def.def = meta[0].trim().split(/;/).join(', ');
+                        if(meta[1] == undefined){
+                            meta[1] = "";
+                        }
+                        def.pos = meta[1].trim();
+                        table.addItem(elems[0], def);
                     }
-                    def.word = elems[1].trim();
-                    def.morph = elems[2].trim();
-                    meta = elems.slice(3).join(' ').split(/ <pos>|<\/pos> /);
-                    def.def = meta[0].trim().split(/;/).join(', ');
-                    if(meta[1] == undefined){
-                        meta[1] = "";
+                    else if(line != '' && line.trim() == ';'){
+                        root = '---';
                     }
-                    def.pos = meta[1].trim();
-                    table.addItem(elems[0], def);
-                }
-                else if(line != '' && line.trim() == ';'){
-                    root = '---';
-                }
-                else if(line != '' && line.slice(0,5) == ';--- '){
-                    root = line.split(/\s/)[1];
-                }
-            });
-            resolve(table);
+                    else if(line != '' && line.slice(0,5) == ';--- '){
+                        root = line.split(/\s/)[1];
+                    }
+                });
+                resolve(table);
+            } catch (error) {
+                reject(error);
+            }
         }
         setTimeout(helper, 0);
     });
@@ -262,7 +270,13 @@ function isObeysGrammar(prefMorph, stemMorph, suffMorph){
 
 // Loading dictionary
 
-var initialized = false;
+var EXTENSION_STATES = {
+    LOADING: 'loading',
+    READY: 'ready',
+    ERROR: 'error'
+};
+
+var extensionState = EXTENSION_STATES.LOADING;
 var dictstems;
 var dictprefs;
 var dictsuffs;
@@ -270,7 +284,12 @@ var tableab;
 var tablebc;
 var tableac;
 
+function setExtensionState(state){
+    extensionState = state;
+}
+
 function loadDictData() {
+    setExtensionState(EXTENSION_STATES.LOADING);
     var f = [];
     f[0] = createDictTableFromFile('data/dictstems');
     f[1] = createDictTableFromFile('data/dictprefixes');
@@ -285,7 +304,11 @@ function loadDictData() {
         tableab = values[3];
         tablebc = values[4];
         tableac = values[5];
-        initialized = true;
+        setExtensionState(EXTENSION_STATES.READY);
+    }).catch(function(error){
+        setExtensionState(EXTENSION_STATES.ERROR);
+        console.error('Dictionary load failed:', error);
+        throw error;
     });
 
 };
@@ -419,9 +442,11 @@ function wrapArabicWords(){
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
+        if(extensionState !== EXTENSION_STATES.READY){
+            elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
+            continue;
+        }
         new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
-
-
     }
 
 
@@ -429,8 +454,13 @@ function wrapArabicWords(){
 
 function initialize(){
     loadDictData().then(function(){
-        setTimeout(wrapArabicWords, 0);
-    })
+        if(extensionState === EXTENSION_STATES.READY){
+            wrapArabicWords();
+        }
+    }).catch(function(){
+        console.warn('Dictionary extension is in error state. Native title tooltips will be used until dictionary data loads successfully.');
+        wrapArabicWords();
+    });
 }
 
 
