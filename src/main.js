@@ -19,7 +19,7 @@ function readFile(url){
 }
 
 function readExtensionFile(path){
-    return readFile(chrome.extension.getURL(path));
+    return readFile(chrome.runtime.getURL(path));
 }
 
 function DictArray(){
@@ -43,6 +43,8 @@ function createMorphTableFromFile(path){
             createMorphTableFromText(text).then(function(table){
                 resolve(table);
             });
+        }).catch(function(err){
+            reject(err);
         });
     });
 }
@@ -70,6 +72,8 @@ function createDictTableFromFile(path){
             createDictTable(text).then(function(table){
                 resolve(table);
             });
+        }).catch(function(err){
+            reject(err);
         });
     });
 }
@@ -331,6 +335,12 @@ function lookupWithFallback(text){
 // Loading dictionary
 
 var initialized = false;
+var EXTENSION_STATES = {
+    LOADING: 'loading',
+    READY: 'ready',
+    ERROR: 'error'
+};
+var extensionState = EXTENSION_STATES.LOADING;
 var dictstems;
 var dictprefs;
 var dictsuffs;
@@ -339,6 +349,7 @@ var tablebc;
 var tableac;
 
 function loadDictData() {
+    console.info('[Arabic Dictionary] Loading dictionary data');
     var f = [];
     f[0] = createDictTableFromFile('data/dictstems');
     f[1] = createDictTableFromFile('data/dictprefixes');
@@ -354,6 +365,8 @@ function loadDictData() {
         tablebc = values[4];
         tableac = values[5];
         initialized = true;
+        extensionState = EXTENSION_STATES.READY;
+        console.info('[Arabic Dictionary] Dictionary data loaded');
     });
 
 };
@@ -366,7 +379,8 @@ for(var char in uni2buck){
 var arabicWordMatchRegex = new RegExp("([" + arabicChars + "]+)", "g");
 
 function isArabicWord(text){
-    return arabicWordRegex.test(text);
+    arabicWordMatchRegex.lastIndex = 0;
+    return arabicWordMatchRegex.test(text);
 }
 
 function createDefintionsHTML(data){
@@ -722,12 +736,14 @@ function startMutationObserver(){
 
 function wrapArabicWords(){
     // initial full-page wrapping pass
+    console.info('[Arabic Dictionary] Wrapping Arabic words');
     processNodeForArabicWords(document.documentElement);
 }
 
 function initialize(){
     loadDictData().then(function(){
         if(extensionState === EXTENSION_STATES.READY){
+            console.info('[Arabic Dictionary] Extension ready, wrapping page');
             setTimeout(function(){
                 Opentip.lastZIndex = 1000000000;
                 attachTooltipListeners();
@@ -735,8 +751,9 @@ function initialize(){
                 startMutationObserver();
             }, 0);
         }
-    }).catch(function(){
-        console.warn('Dictionary extension is in error state. Native title tooltips will be used until dictionary data loads successfully.');
+    }).catch(function(err){
+        extensionState = EXTENSION_STATES.ERROR;
+        console.warn('[Arabic Dictionary] Dictionary data failed to load. Falling back to native title tooltips.', err);
         wrapArabicWords();
     });
 }
