@@ -370,9 +370,6 @@ function wrapArabicWords(){
                 if(isEditableElement(current)){
                     return NodeFilter.FILTER_REJECT;
                 }
-                if(current.getAttribute && current.getAttribute('contenteditable') === 'false'){
-                    return NodeFilter.FILTER_ACCEPT;
-                }
                 current = current.parentNode;
             }
 
