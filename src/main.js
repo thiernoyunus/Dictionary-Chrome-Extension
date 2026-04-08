@@ -295,6 +295,7 @@ var arabicChars = "";
 for(var char in uni2buck){
     arabicChars += char;
 }
+var arabicWordMatchRegex = new RegExp("([" + arabicChars + "]+)", "g");
 
 function isArabicWord(text){
     return arabicWordRegex.test(text);
@@ -342,7 +343,7 @@ function shouldSkipTextNode(textNode){
     if(!textNode.parentElement){
         return false;
     }
-    if(textNode.parentElement.closest('.arabic-wrapped-31245')){
+    if(textNode.parentElement.closest('.arabic-wrapped-31245, .opentip-container')){
         return true;
     }
     var tagName = textNode.parentElement.tagName;
@@ -355,14 +356,6 @@ function shouldSkipTextNode(textNode){
 function createWrappedSpan(arabicWord){
     var wrapped = document.createElement('span');
     wrapped.className = 'arabic-wrapped-31245';
-    wrapped.onmouseover = function(){
-        this.style.background = '#FFFF00';
-        this.style.color = 'black';
-    };
-    wrapped.onmouseout = function(){
-        this.style.background = 'transparent';
-        this.style.color = 'inherit';
-    };
     wrapped.textContent = arabicWord;
     return wrapped;
 }
@@ -371,7 +364,6 @@ function addTooltipForElement(elem){
     if(!elem || tooltipInstances.has(elem)){
         return;
     }
-    Opentip.lastZIndex = 1000000000;
     var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
     wrappedElements.add(elem);
     tooltipInstances.set(elem, tip);
@@ -409,24 +401,23 @@ function wrapArabicWordsInTextNode(textNode){
     if(shouldSkipTextNode(textNode)){
         return;
     }
-    var regex = new RegExp("([" + arabicChars + "]+)", "g");
     var text = textNode.nodeValue;
-    regex.lastIndex = 0;
-    if(!regex.test(text)){
+    arabicWordMatchRegex.lastIndex = 0;
+    if(!arabicWordMatchRegex.test(text)){
         return;
     }
     var frag = document.createDocumentFragment();
-    regex.lastIndex = 0;
+    arabicWordMatchRegex.lastIndex = 0;
     var lastIndex = 0;
     var match;
-    while((match = regex.exec(text)) !== null){
+    while((match = arabicWordMatchRegex.exec(text)) !== null){
         if(match.index > lastIndex){
             frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
         }
         var wrapped = createWrappedSpan(match[0]);
         frag.appendChild(wrapped);
         addTooltipForElement(wrapped);
-        lastIndex = regex.lastIndex;
+        lastIndex = arabicWordMatchRegex.lastIndex;
     }
     if(lastIndex < text.length){
         frag.appendChild(document.createTextNode(text.slice(lastIndex)));
@@ -434,8 +425,24 @@ function wrapArabicWordsInTextNode(textNode){
     textNode.parentNode.replaceChild(frag, textNode);
 }
 
+function isNodeConnected(node){
+    if(!node){
+        return false;
+    }
+    if(node === document || node === document.documentElement){
+        return true;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        return !!node.parentNode && !!node.parentNode.isConnected;
+    }
+    return !!node.isConnected;
+}
+
 function processNodeForArabicWords(node){
     if(!node){
+        return;
+    }
+    if(!isNodeConnected(node)){
         return;
     }
     if(node.nodeType === Node.TEXT_NODE){
@@ -445,7 +452,10 @@ function processNodeForArabicWords(node){
     if(node.nodeType !== Node.ELEMENT_NODE){
         return;
     }
-    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+    if(node.closest && node.closest('.opentip-container')){
+        return;
+    }
+    if(node.classList && (node.classList.contains('arabic-wrapped-31245') || node.classList.contains('opentip-container'))){
         return;
     }
     var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
@@ -465,12 +475,17 @@ function flushMutationBatch(){
     pendingMutationRoots.clear();
     suppressMutationHandling = true;
     nodesToProcess.forEach(function(node){
-        processNodeForArabicWords(node);
+        if(isNodeConnected(node)){
+            processNodeForArabicWords(node);
+        }
     });
     suppressMutationHandling = false;
 }
 
 function scheduleMutationBatch(node){
+    if(!node){
+        return;
+    }
     pendingMutationRoots.add(node);
     if(mutationBatchTimer){
         return;
@@ -515,6 +530,7 @@ function wrapArabicWords(){
 function initialize(){
     loadDictData().then(function(){
         setTimeout(function(){
+            Opentip.lastZIndex = 1000000000;
             wrapArabicWords();
             startMutationObserver();
         }, 0);
