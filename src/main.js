@@ -211,6 +211,7 @@ function lookup(word){
 var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
 var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
 var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
+var arabicWrappingRegex = /([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0640\u200C\u200D]+)/g;
 
 function normalizeArabicToken(text){
     if(!text){
@@ -237,12 +238,26 @@ function stemFriendlyNormalize(text){
 }
 
 function lookupWithFallback(text){
-    var normalized = normalizeArabicToken(text);
-    var candidates = [normalized];
+    var original = normalizeArabicToken(text);
+    var candidates = [];
 
-    var dediac = deDiacritizeArabic(normalized);
+    if(original){
+        candidates.push(original);
+    }
+
+    var dediac = deDiacritizeArabic(original);
     if(dediac && candidates.indexOf(dediac) === -1){
         candidates.push(dediac);
+    }
+
+    var normalized = original.replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627");
+    if(normalized && candidates.indexOf(normalized) === -1){
+        candidates.push(normalized);
+    }
+
+    var normalizedDediac = deDiacritizeArabic(normalized);
+    if(normalizedDediac && candidates.indexOf(normalizedDediac) === -1){
+        candidates.push(normalizedDediac);
     }
 
     var stemFriendly = stemFriendlyNormalize(dediac);
@@ -383,9 +398,7 @@ function wrapArabicWords(){
         a.push(curElem);
     }
     a.forEach(function(curElem){
-        var regex = /([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0640\u200C\u200D]+)/g;
-
-        var newHTML = curElem.nodeValue.replace(regex, function(match){
+        var newHTML = curElem.nodeValue.replace(arabicWrappingRegex, function(match){
             var normalizedToken = normalizeArabicToken(match);
             if(!normalizedToken){
                 return match;
@@ -393,8 +406,8 @@ function wrapArabicWords(){
 
             return "<span class='arabic-wrapped-31245' data-normalized-token='" + normalizedToken + "' " +
                 "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
-                "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"''" +
-                ">" + normalizedToken + "</span>";
+                "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"'" +
+                ">" + match + "</span>";
         });
         if(newHTML == curElem.nodeValue){
             return;
