@@ -213,7 +213,7 @@ var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
 var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
 var arabicWrappingRegex = /([\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0640\u200C\u200D]+)/g;
 
-function normalizeArabicToken(text){
+function sanitizeArabicToken(text){
     if(!text){
         return "";
     }
@@ -221,9 +221,13 @@ function normalizeArabicToken(text){
     return text
         .replace(zeroWidthCharsRegex, "")
         .replace(/\u0640/g, "")               // tatweel
-        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627") // آ،أ،إ،ٱ -> ا
         .replace(trimPunctuationRegex, "")
         .trim();
+}
+
+function normalizeArabicToken(text){
+    return sanitizeArabicToken(text)
+        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627"); // آ،أ،إ،ٱ -> ا
 }
 
 function deDiacritizeArabic(text){
@@ -238,7 +242,7 @@ function stemFriendlyNormalize(text){
 }
 
 function lookupWithFallback(text){
-    var original = normalizeArabicToken(text);
+    var original = sanitizeArabicToken(text);
     var candidates = [];
 
     if(original){
@@ -260,7 +264,7 @@ function lookupWithFallback(text){
         candidates.push(normalizedDediac);
     }
 
-    var stemFriendly = stemFriendlyNormalize(dediac);
+    var stemFriendly = stemFriendlyNormalize(normalizedDediac);
     if(stemFriendly && candidates.indexOf(stemFriendly) === -1){
         candidates.push(stemFriendly);
     }
@@ -422,8 +426,7 @@ function wrapArabicWords(){
     var elems = document.getElementsByClassName('arabic-wrapped-31245');
     for(var i = 0; i < elems.length; i++){
         var elem = elems[i];
-        var normalizedToken = elem.getAttribute('data-normalized-token') || normalizeArabicToken(elem.textContent);
-        new Opentip(elem, createDefintionsHTML(lookupWithFallback(normalizedToken)), {style:'glass'});
+        new Opentip(elem, createDefintionsHTML(lookupWithFallback(elem.textContent)), {style:'glass'});
 
 
     }
