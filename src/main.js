@@ -208,80 +208,6 @@ function lookup(word){
     return data;
 }
 
-var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
-var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
-var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
-var arabicChars = "";
-for(var char in uni2buck){
-    arabicChars += char;
-}
-var arabicWrappingRegex = new RegExp("([" + arabicChars + "]+)", "g");
-
-function sanitizeArabicToken(text){
-    if(!text){
-        return "";
-    }
-
-    return text
-        .replace(zeroWidthCharsRegex, "")
-        .replace(/\u0640/g, "")               // tatweel
-        .replace(trimPunctuationRegex, "")
-        .trim();
-}
-
-function normalizeArabicToken(text){
-    return sanitizeArabicToken(text)
-        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627"); // آ،أ،إ،ٱ -> ا
-}
-
-function deDiacritizeArabic(text){
-    return text.replace(arabicDiacriticsRegex, "");
-}
-
-function stemFriendlyNormalize(text){
-    // conservative fallback: unify final variants often found in stem dict entries
-    return text
-        .replace(/\u0649/g, "\u064A") // ى -> ي
-        .replace(/\u0629/g, "\u0647"); // ة -> ه
-}
-
-function lookupWithFallback(text){
-    var original = sanitizeArabicToken(text);
-    var candidates = [];
-
-    if(original){
-        candidates.push(original);
-    }
-
-    var dediac = deDiacritizeArabic(original);
-    if(dediac && candidates.indexOf(dediac) === -1){
-        candidates.push(dediac);
-    }
-
-    var normalized = original.replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627");
-    if(normalized && candidates.indexOf(normalized) === -1){
-        candidates.push(normalized);
-    }
-
-    var normalizedDediac = deDiacritizeArabic(normalized);
-    if(normalizedDediac && candidates.indexOf(normalizedDediac) === -1){
-        candidates.push(normalizedDediac);
-    }
-
-    var stemFriendly = stemFriendlyNormalize(normalizedDediac);
-    if(stemFriendly && candidates.indexOf(stemFriendly) === -1){
-        candidates.push(stemFriendly);
-    }
-
-    for(var i = 0; i < candidates.length; i++){
-        var found = lookup(candidates[i]);
-        if(found.length){
-            return found;
-        }
-    }
-    return [];
-}
-
 function lookupPrefStemSuff(pref, stem, suff){
     var prefMatches = dictprefs.get(pref);
     var stemMatches = dictstems.get(stem);
@@ -334,6 +260,74 @@ function isObeysGrammar(prefMorph, stemMorph, suffMorph){
         && tableac.get(prefMorph).indexOf(suffMorph) != -1;
 }
 
+var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
+var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
+var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
+
+function sanitizeArabicToken(text){
+    if(!text){
+        return "";
+    }
+
+    return text
+        .replace(zeroWidthCharsRegex, "")
+        .replace(/\u0640/g, "")
+        .replace(trimPunctuationRegex, "")
+        .trim();
+}
+
+function normalizeArabicToken(text){
+    return sanitizeArabicToken(text)
+        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627");
+}
+
+function deDiacritizeArabic(text){
+    return text.replace(arabicDiacriticsRegex, "");
+}
+
+function stemFriendlyNormalize(text){
+    return text
+        .replace(/\u0649/g, "\u064A")
+        .replace(/\u0629/g, "\u0647");
+}
+
+function lookupWithFallback(text){
+    var original = sanitizeArabicToken(text);
+    var candidates = [];
+
+    if(original){
+        candidates.push(original);
+    }
+
+    var dediac = deDiacritizeArabic(original);
+    if(dediac && candidates.indexOf(dediac) === -1){
+        candidates.push(dediac);
+    }
+
+    var normalized = normalizeArabicToken(original);
+    if(normalized && candidates.indexOf(normalized) === -1){
+        candidates.push(normalized);
+    }
+
+    var normalizedDediac = deDiacritizeArabic(normalized);
+    if(normalizedDediac && candidates.indexOf(normalizedDediac) === -1){
+        candidates.push(normalizedDediac);
+    }
+
+    var stemFriendly = stemFriendlyNormalize(normalizedDediac);
+    if(stemFriendly && candidates.indexOf(stemFriendly) === -1){
+        candidates.push(stemFriendly);
+    }
+
+    for(var i = 0; i < candidates.length; i++){
+        var found = lookup(candidates[i]);
+        if(found.length){
+            return found;
+        }
+    }
+    return [];
+}
+
 // Loading dictionary
 
 var initialized = false;
@@ -365,6 +359,11 @@ function loadDictData() {
 };
 
 // injecting code
+var arabicChars = "";
+for(var char in uni2buck){
+    arabicChars += char;
+}
+var arabicWordMatchRegex = new RegExp("([" + arabicChars + "]+)", "g");
 
 function isArabicWord(text){
     return arabicWordRegex.test(text);
@@ -398,50 +397,348 @@ function createDefintionsHTML(data){
     return str;
 }
 
-function wrapArabicWords(){
-    // puts spans around arabic words
+var tooltipByElement = new WeakMap();
+var tooltipListenersAttached = false;
+var activeTooltip = null;
+var mutationObserver = null;
+var mutationBatchTimer = null;
+var pendingMutationRoots = new Set();
+var pendingRemovedRoots = new Set();
+var suppressMutationHandling = false;
 
-    var curElem, a=[], walk=document.createTreeWalker( document.documentElement, NodeFilter.SHOW_TEXT, null, false);
-    while(curElem=walk.nextNode()){
-        a.push(curElem);
+function closeTooltip(opentipInstance){
+    if(!opentipInstance){
+        return;
     }
-    a.forEach(function(curElem){
-        var newHTML = curElem.nodeValue.replace(arabicWrappingRegex, function(match){
-            var normalizedToken = normalizeArabicToken(match);
-            if(!normalizedToken){
-                return match;
-            }
+    if(typeof opentipInstance.hide === 'function'){
+        opentipInstance.hide();
+    }
+    else if(typeof opentipInstance.deactivate === 'function'){
+        opentipInstance.deactivate();
+    }
+}
 
-            return "<span class='arabic-wrapped-31245' data-normalized-token='" + normalizedToken + "' " +
-                "onmouseover='this.style.background = \"#FFFF00\";this.style.color = \"black\"' " +
-                "onmouseout='this.style.background = \"transparent\";this.style.color = \"inherit\"'" +
-                ">" + match + "</span>";
+function closeAllTooltips(exceptTip){
+    if(activeTooltip && activeTooltip !== exceptTip){
+        closeTooltip(activeTooltip);
+        activeTooltip = null;
+    }
+}
+
+function attachTooltipListeners(){
+    if(tooltipListenersAttached){
+        return;
+    }
+
+    document.addEventListener('click', function(event){
+        var clickedInsideTooltip = event.target && event.target.closest && event.target.closest('.opentip-container');
+        var clickedWrappedWord = event.target && event.target.closest && event.target.closest('.arabic-wrapped-31245');
+        if(!clickedInsideTooltip && !clickedWrappedWord){
+            closeAllTooltips();
+        }
+    });
+
+    document.addEventListener('keydown', function(event){
+        if(event.key === 'Escape' || event.keyCode === 27){
+            closeAllTooltips();
+        }
+    });
+
+    window.addEventListener('scroll', function(){
+        closeAllTooltips();
+    }, true);
+
+    window.addEventListener('resize', function(){
+        closeAllTooltips();
+    });
+
+    tooltipListenersAttached = true;
+}
+
+function shouldSkipTextNode(textNode){
+    if(!textNode || !textNode.parentNode || !textNode.nodeValue){
+        return true;
+    }
+    if(!textNode.parentElement){
+        return false;
+    }
+    if(textNode.parentElement.closest('.arabic-wrapped-31245, .opentip-container')){
+        return true;
+    }
+    var tagName = textNode.parentElement.tagName;
+    return tagName == 'SCRIPT'
+        || tagName == 'STYLE'
+        || tagName == 'NOSCRIPT'
+        || tagName == 'TEXTAREA';
+}
+
+function createWrappedSpan(arabicWord){
+    var wrapped = document.createElement('span');
+    wrapped.className = 'arabic-wrapped-31245';
+    wrapped.textContent = arabicWord;
+    return wrapped;
+}
+
+function addTooltipForElement(elem){
+    if(!elem || tooltipByElement.has(elem)){
+        return;
+    }
+    if(extensionState !== EXTENSION_STATES.READY){
+        elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
+        return;
+    }
+
+    var tip = new Opentip(elem, createDefintionsHTML(lookupWithFallback(elem.textContent)), {
+        style: 'glass'
+    });
+
+    var originalShow = tip.show;
+    tip.show = function(){
+        closeAllTooltips(this);
+        activeTooltip = this;
+        return originalShow.apply(this, arguments);
+    };
+
+    if(typeof tip.hide === 'function'){
+        var originalHide = tip.hide;
+        tip.hide = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
+            }
+            return originalHide.apply(this, arguments);
+        };
+    }
+
+    if(typeof tip.deactivate === 'function'){
+        var originalDeactivate = tip.deactivate;
+        tip.deactivate = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
+            }
+            return originalDeactivate.apply(this, arguments);
+        };
+    }
+
+    tooltipByElement.set(elem, tip);
+}
+
+function disposeTooltipForElement(elem){
+    if(!elem){
+        return;
+    }
+    var tip = tooltipByElement.get(elem);
+    if(tip){
+        closeTooltip(tip);
+        if(tip.container && tip.adapter){
+            tip.adapter.remove(tip.container);
+        }
+    }
+    tooltipByElement.delete(elem);
+}
+
+function cleanupRemovedNode(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        disposeTooltipForElement(node);
+    }
+    var removedWrapped = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < removedWrapped.length; i++){
+        disposeTooltipForElement(removedWrapped[i]);
+    }
+}
+
+function ensureTooltipForWrappedSubtree(node){
+    if(!node || node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
+    }
+
+    var wrappedNodes = node.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < wrappedNodes.length; i++){
+        addTooltipForElement(wrappedNodes[i]);
+    }
+}
+
+function wrapArabicWordsInTextNode(textNode){
+    if(shouldSkipTextNode(textNode)){
+        return;
+    }
+    var text = textNode.nodeValue;
+    arabicWordMatchRegex.lastIndex = 0;
+    if(!arabicWordMatchRegex.test(text)){
+        return;
+    }
+    var frag = document.createDocumentFragment();
+    arabicWordMatchRegex.lastIndex = 0;
+    var lastIndex = 0;
+    var match;
+    while((match = arabicWordMatchRegex.exec(text)) !== null){
+        if(match.index > lastIndex){
+            frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        var wrapped = createWrappedSpan(match[0]);
+        frag.appendChild(wrapped);
+        addTooltipForElement(wrapped);
+        lastIndex = arabicWordMatchRegex.lastIndex;
+    }
+    if(lastIndex < text.length){
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    textNode.parentNode.replaceChild(frag, textNode);
+}
+
+function isNodeConnected(node){
+    if(!node){
+        return false;
+    }
+    if(node === document || node === document.documentElement){
+        return true;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        return !!node.parentNode && !!node.parentNode.isConnected;
+    }
+    return !!node.isConnected;
+}
+
+function processNodeForArabicWords(node){
+    if(!node){
+        return;
+    }
+    if(!isNodeConnected(node)){
+        return;
+    }
+    if(node.nodeType === Node.TEXT_NODE){
+        wrapArabicWordsInTextNode(node);
+        return;
+    }
+    if(node.nodeType !== Node.ELEMENT_NODE){
+        return;
+    }
+    if(node.closest && node.closest('.opentip-container')){
+        return;
+    }
+    if(node.classList && node.classList.contains('arabic-wrapped-31245')){
+        addTooltipForElement(node);
+        return;
+    }
+    if(node.classList && node.classList.contains('opentip-container')){
+        return;
+    }
+
+    ensureTooltipForWrappedSubtree(node);
+
+    var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+    var textNodes = [];
+    var curElem;
+    while(curElem = walker.nextNode()){
+        textNodes.push(curElem);
+    }
+    textNodes.forEach(function(textNode){
+        wrapArabicWordsInTextNode(textNode);
+    });
+}
+
+function flushMutationBatch(){
+    mutationBatchTimer = null;
+    var nodesToProcess = Array.from(pendingMutationRoots);
+    pendingMutationRoots.clear();
+    var nodesToCleanup = Array.from(pendingRemovedRoots);
+    pendingRemovedRoots.clear();
+
+    suppressMutationHandling = true;
+    if(mutationObserver){
+        mutationObserver.disconnect();
+    }
+
+    nodesToCleanup.forEach(function(node){
+        if(!isNodeConnected(node)){
+            cleanupRemovedNode(node);
+        }
+    });
+
+    nodesToProcess.forEach(function(node){
+        if(isNodeConnected(node)){
+            processNodeForArabicWords(node);
+        }
+    });
+
+    if(mutationObserver){
+        mutationObserver.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            characterData: true
         });
-        if(newHTML == curElem.nodeValue){
+    }
+    suppressMutationHandling = false;
+}
+
+function scheduleMutationBatch(node){
+    if(!node){
+        return;
+    }
+    pendingMutationRoots.add(node);
+    if(mutationBatchTimer){
+        return;
+    }
+    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
+}
+
+function startMutationObserver(){
+    if(mutationObserver){
+        return;
+    }
+    mutationObserver = new MutationObserver(function(mutations){
+        if(suppressMutationHandling){
             return;
         }
-
-        var spanElem = document.createElement("span");
-        spanElem.innerHTML = newHTML;
-        curElem.parentNode.replaceChild(spanElem, curElem);
+        mutations.forEach(function(mutation){
+            if(mutation.type === 'childList'){
+                for(var i = 0; i < mutation.removedNodes.length; i++){
+                    pendingRemovedRoots.add(mutation.removedNodes[i]);
+                }
+                for(var j = 0; j < mutation.addedNodes.length; j++){
+                    scheduleMutationBatch(mutation.addedNodes[j]);
+                }
+                if(mutation.removedNodes.length && !mutationBatchTimer){
+                    mutationBatchTimer = setTimeout(flushMutationBatch, 60);
+                }
+            }
+            else if(mutation.type === 'characterData'){
+                scheduleMutationBatch(mutation.target);
+            }
+        });
     });
-	
-    Opentip.lastZIndex = 1000000000;
-    var elems = document.getElementsByClassName('arabic-wrapped-31245');
-    for(var i = 0; i < elems.length; i++){
-        var elem = elems[i];
-        new Opentip(elem, createDefintionsHTML(lookupWithFallback(elem.textContent)), {style:'glass'});
+    mutationObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+}
 
-
-    }
-
-
+function wrapArabicWords(){
+    // initial full-page wrapping pass
+    processNodeForArabicWords(document.documentElement);
 }
 
 function initialize(){
     loadDictData().then(function(){
-        setTimeout(wrapArabicWords, 0);
-    })
+        if(extensionState === EXTENSION_STATES.READY){
+            setTimeout(function(){
+                Opentip.lastZIndex = 1000000000;
+                attachTooltipListeners();
+                wrapArabicWords();
+                startMutationObserver();
+            }, 0);
+        }
+    }).catch(function(){
+        console.warn('Dictionary extension is in error state. Native title tooltips will be used until dictionary data loads successfully.');
+        wrapArabicWords();
+    });
 }
 
 
