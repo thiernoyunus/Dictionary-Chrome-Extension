@@ -260,6 +260,74 @@ function isObeysGrammar(prefMorph, stemMorph, suffMorph){
         && tableac.get(prefMorph).indexOf(suffMorph) != -1;
 }
 
+var arabicDiacriticsRegex = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
+var zeroWidthCharsRegex = /[\u200B-\u200F\u2060\uFEFF]/g;
+var trimPunctuationRegex = /^[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+|[\s"'“”‘’`،.,:؛!?؟()\[\]{}<>«»]+$/g;
+
+function sanitizeArabicToken(text){
+    if(!text){
+        return "";
+    }
+
+    return text
+        .replace(zeroWidthCharsRegex, "")
+        .replace(/\u0640/g, "")
+        .replace(trimPunctuationRegex, "")
+        .trim();
+}
+
+function normalizeArabicToken(text){
+    return sanitizeArabicToken(text)
+        .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627");
+}
+
+function deDiacritizeArabic(text){
+    return text.replace(arabicDiacriticsRegex, "");
+}
+
+function stemFriendlyNormalize(text){
+    return text
+        .replace(/\u0649/g, "\u064A")
+        .replace(/\u0629/g, "\u0647");
+}
+
+function lookupWithFallback(text){
+    var original = sanitizeArabicToken(text);
+    var candidates = [];
+
+    if(original){
+        candidates.push(original);
+    }
+
+    var dediac = deDiacritizeArabic(original);
+    if(dediac && candidates.indexOf(dediac) === -1){
+        candidates.push(dediac);
+    }
+
+    var normalized = normalizeArabicToken(original);
+    if(normalized && candidates.indexOf(normalized) === -1){
+        candidates.push(normalized);
+    }
+
+    var normalizedDediac = deDiacritizeArabic(normalized);
+    if(normalizedDediac && candidates.indexOf(normalizedDediac) === -1){
+        candidates.push(normalizedDediac);
+    }
+
+    var stemFriendly = stemFriendlyNormalize(normalizedDediac);
+    if(stemFriendly && candidates.indexOf(stemFriendly) === -1){
+        candidates.push(stemFriendly);
+    }
+
+    for(var i = 0; i < candidates.length; i++){
+        var found = lookup(candidates[i]);
+        if(found.length){
+            return found;
+        }
+    }
+    return [];
+}
+
 // Loading dictionary
 
 var initialized = false;
@@ -420,7 +488,7 @@ function addTooltipForElement(elem){
         return;
     }
 
-    var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
+    var tip = new Opentip(elem, createDefintionsHTML(lookupWithFallback(elem.textContent)), {
         style: 'glass'
     });
 
