@@ -329,13 +329,63 @@ function createDefintionsHTML(data){
     return str;
 }
 
-var wrappedElements = new Set();
-var tooltipInstances = new Map();
+var tooltipByElement = new WeakMap();
+var tooltipListenersAttached = false;
+var activeTooltip = null;
 var mutationObserver = null;
 var mutationBatchTimer = null;
 var pendingMutationRoots = new Set();
 var pendingRemovedRoots = new Set();
 var suppressMutationHandling = false;
+
+function closeTooltip(opentipInstance){
+    if(!opentipInstance){
+        return;
+    }
+    if(typeof opentipInstance.hide === 'function'){
+        opentipInstance.hide();
+    }
+    else if(typeof opentipInstance.deactivate === 'function'){
+        opentipInstance.deactivate();
+    }
+}
+
+function closeAllTooltips(exceptTip){
+    if(activeTooltip && activeTooltip !== exceptTip){
+        closeTooltip(activeTooltip);
+        activeTooltip = null;
+    }
+}
+
+function attachTooltipListeners(){
+    if(tooltipListenersAttached){
+        return;
+    }
+
+    document.addEventListener('click', function(event){
+        var clickedInsideTooltip = event.target && event.target.closest && event.target.closest('.opentip-container');
+        var clickedWrappedWord = event.target && event.target.closest && event.target.closest('.arabic-wrapped-31245');
+        if(!clickedInsideTooltip && !clickedWrappedWord){
+            closeAllTooltips();
+        }
+    });
+
+    document.addEventListener('keydown', function(event){
+        if(event.key === 'Escape' || event.keyCode === 27){
+            closeAllTooltips();
+        }
+    });
+
+    window.addEventListener('scroll', function(){
+        closeAllTooltips();
+    }, true);
+
+    window.addEventListener('resize', function(){
+        closeAllTooltips();
+    });
+
+    tooltipListenersAttached = true;
+}
 
 function shouldSkipTextNode(textNode){
     if(!textNode || !textNode.parentNode || !textNode.nodeValue){
@@ -362,27 +412,60 @@ function createWrappedSpan(arabicWord){
 }
 
 function addTooltipForElement(elem){
-    if(!elem || tooltipInstances.has(elem)){
+    if(!elem || tooltipByElement.has(elem)){
         return;
     }
-    var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {style:'glass'});
-    wrappedElements.add(elem);
-    tooltipInstances.set(elem, tip);
+    if(extensionState !== EXTENSION_STATES.READY){
+        elem.setAttribute('title', 'Dictionary data failed to load. Reload this page to retry.');
+        return;
+    }
+
+    var tip = new Opentip(elem, createDefintionsHTML(lookup(elem.textContent)), {
+        style: 'glass'
+    });
+
+    var originalShow = tip.show;
+    tip.show = function(){
+        closeAllTooltips(this);
+        activeTooltip = this;
+        return originalShow.apply(this, arguments);
+    };
+
+    if(typeof tip.hide === 'function'){
+        var originalHide = tip.hide;
+        tip.hide = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
+            }
+            return originalHide.apply(this, arguments);
+        };
+    }
+
+    if(typeof tip.deactivate === 'function'){
+        var originalDeactivate = tip.deactivate;
+        tip.deactivate = function(){
+            if(activeTooltip === this){
+                activeTooltip = null;
+            }
+            return originalDeactivate.apply(this, arguments);
+        };
+    }
+
+    tooltipByElement.set(elem, tip);
 }
 
 function disposeTooltipForElement(elem){
     if(!elem){
         return;
     }
-    var tip = tooltipInstances.get(elem);
+    var tip = tooltipByElement.get(elem);
     if(tip){
-        tip.deactivate();
+        closeTooltip(tip);
         if(tip.container && tip.adapter){
             tip.adapter.remove(tip.container);
         }
     }
-    tooltipInstances.delete(elem);
-    wrappedElements.delete(elem);
+    tooltipByElement.delete(elem);
 }
 
 function cleanupRemovedNode(node){
@@ -576,12 +659,18 @@ function wrapArabicWords(){
 
 function initialize(){
     loadDictData().then(function(){
-        setTimeout(function(){
-            Opentip.lastZIndex = 1000000000;
-            wrapArabicWords();
-            startMutationObserver();
-        }, 0);
-    })
+        if(extensionState === EXTENSION_STATES.READY){
+            setTimeout(function(){
+                Opentip.lastZIndex = 1000000000;
+                attachTooltipListeners();
+                wrapArabicWords();
+                startMutationObserver();
+            }, 0);
+        }
+    }).catch(function(){
+        console.warn('Dictionary extension is in error state. Native title tooltips will be used until dictionary data loads successfully.');
+        wrapArabicWords();
+    });
 }
 
 
