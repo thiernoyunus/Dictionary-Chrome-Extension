@@ -338,9 +338,11 @@ var initialized = false;
 var EXTENSION_STATES = {
     LOADING: 'loading',
     READY: 'ready',
-    ERROR: 'error'
+    ERROR: 'error',
+    DISABLED: 'disabled'
 };
 var extensionState = EXTENSION_STATES.LOADING;
+var extensionEnabled = true;
 var dictstems;
 var dictprefs;
 var dictsuffs;
@@ -364,7 +366,7 @@ function loadDictData() {
         tablebc = values[4];
         tableac = values[5];
         initialized = true;
-        extensionState = EXTENSION_STATES.READY;
+        extensionState = extensionEnabled ? EXTENSION_STATES.READY : EXTENSION_STATES.DISABLED;
     });
 
 };
@@ -417,6 +419,7 @@ var mutationBatchTimer = null;
 var pendingMutationRoots = new Set();
 var pendingRemovedRoots = new Set();
 var suppressMutationHandling = false;
+var wrappedElements = new Set();
 
 function closeTooltip(opentipInstance){
     if(!opentipInstance){
@@ -488,11 +491,77 @@ function createWrappedSpan(arabicWord){
     var wrapped = document.createElement('span');
     wrapped.className = 'arabic-wrapped-31245';
     wrapped.textContent = arabicWord;
+    wrappedElements.add(wrapped);
     return wrapped;
+}
+
+function stopMutationObserver(){
+    if(mutationObserver){
+        mutationObserver.disconnect();
+        mutationObserver = null;
+    }
+    if(mutationBatchTimer){
+        clearTimeout(mutationBatchTimer);
+        mutationBatchTimer = null;
+    }
+    pendingMutationRoots.clear();
+    pendingRemovedRoots.clear();
+    suppressMutationHandling = false;
+}
+
+function unwrapArabicWords(){
+    var wrappedNodes = document.querySelectorAll('.arabic-wrapped-31245');
+    for(var i = 0; i < wrappedNodes.length; i++){
+        var wrappedNode = wrappedNodes[i];
+        disposeTooltipForElement(wrappedNode);
+        wrappedElements.delete(wrappedNode);
+        if(wrappedNode.parentNode){
+            wrappedNode.parentNode.replaceChild(document.createTextNode(wrappedNode.textContent), wrappedNode);
+        }
+    }
+}
+
+function enableExtension(){
+    extensionEnabled = true;
+    if(initialized){
+        extensionState = EXTENSION_STATES.READY;
+        attachTooltipListeners();
+        wrapArabicWords();
+        startMutationObserver();
+    }
+    else{
+        extensionState = EXTENSION_STATES.LOADING;
+    }
+}
+
+function disableExtension(){
+    extensionEnabled = false;
+    extensionState = EXTENSION_STATES.DISABLED;
+    stopMutationObserver();
+    closeAllTooltips();
+    unwrapArabicWords();
+}
+
+function setExtensionEnabled(enabled){
+    if(enabled){
+        if(extensionEnabled){
+            return;
+        }
+        enableExtension();
+    }
+    else{
+        if(!extensionEnabled){
+            return;
+        }
+        disableExtension();
+    }
 }
 
 function addTooltipForElement(elem){
     if(!elem || tooltipByElement.has(elem)){
+        return;
+    }
+    if(!extensionEnabled){
         return;
     }
     if(extensionState !== EXTENSION_STATES.READY){
@@ -546,6 +615,7 @@ function disposeTooltipForElement(elem){
         }
     }
     tooltipByElement.delete(elem);
+    wrappedElements.delete(elem);
 }
 
 function cleanupRemovedNode(node){
@@ -619,6 +689,9 @@ function isNodeConnected(node){
 
 function processNodeForArabicWords(node){
     if(!node){
+        return;
+    }
+    if(!extensionEnabled){
         return;
     }
     if(!isNodeConnected(node)){
@@ -701,7 +774,7 @@ function scheduleMutationBatch(node){
 }
 
 function startMutationObserver(){
-    if(mutationObserver){
+    if(mutationObserver || !extensionEnabled || extensionState !== EXTENSION_STATES.READY){
         return;
     }
     mutationObserver = new MutationObserver(function(mutations){
@@ -734,12 +807,26 @@ function startMutationObserver(){
 
 function wrapArabicWords(){
     // initial full-page wrapping pass
+    if(!extensionEnabled){
+        return;
+    }
     processNodeForArabicWords(document.documentElement);
 }
 
-function initialize(){
-    loadDictData().then(function(){
-        if(extensionState === EXTENSION_STATES.READY){
+function readExtensionEnabledState(){
+    return new Promise(function(resolve){
+        chrome.storage.local.get({ arabicDictionaryEnabled: true }, function(items){
+            resolve(items.arabicDictionaryEnabled !== false);
+        });
+    });
+}
+
+function bootstrapExtension(){
+    readExtensionEnabledState().then(function(enabled){
+        extensionEnabled = enabled;
+        return loadDictData();
+    }).then(function(){
+        if(extensionEnabled && extensionState === EXTENSION_STATES.READY){
             setTimeout(function(){
                 Opentip.lastZIndex = 1000000000;
                 attachTooltipListeners();
@@ -747,14 +834,23 @@ function initialize(){
                 startMutationObserver();
             }, 0);
         }
-    }).catch(function(err){
+    }).catch(function(){
         extensionState = EXTENSION_STATES.ERROR;
-        wrapArabicWords();
+        if(extensionEnabled){
+            wrapArabicWords();
+        }
     });
 }
 
 
-initialize();
+chrome.storage.onChanged.addListener(function(changes, areaName){
+    if(areaName !== 'local' || !changes.arabicDictionaryEnabled){
+        return;
+    }
+    setExtensionEnabled(changes.arabicDictionaryEnabled.newValue !== false);
+});
+
+bootstrapExtension();
 
 
 //TODO clear css (esp spans), figure out gloss, make update dynamic (e.g. youtube)
