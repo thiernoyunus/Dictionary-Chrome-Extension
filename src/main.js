@@ -349,7 +349,6 @@ var tablebc;
 var tableac;
 
 function loadDictData() {
-    console.info('[Arabic Dictionary] Loading dictionary data');
     var f = [];
     f[0] = createDictTableFromFile('data/dictstems');
     f[1] = createDictTableFromFile('data/dictprefixes');
@@ -366,7 +365,6 @@ function loadDictData() {
         tableac = values[5];
         initialized = true;
         extensionState = EXTENSION_STATES.READY;
-        console.info('[Arabic Dictionary] Dictionary data loaded');
     });
 
 };
@@ -736,14 +734,12 @@ function startMutationObserver(){
 
 function wrapArabicWords(){
     // initial full-page wrapping pass
-    console.info('[Arabic Dictionary] Wrapping Arabic words');
     processNodeForArabicWords(document.documentElement);
 }
 
 function initialize(){
     loadDictData().then(function(){
         if(extensionState === EXTENSION_STATES.READY){
-            console.info('[Arabic Dictionary] Extension ready, wrapping page');
             setTimeout(function(){
                 Opentip.lastZIndex = 1000000000;
                 attachTooltipListeners();
@@ -753,7 +749,6 @@ function initialize(){
         }
     }).catch(function(err){
         extensionState = EXTENSION_STATES.ERROR;
-        console.warn('[Arabic Dictionary] Dictionary data failed to load. Falling back to native title tooltips.', err);
         wrapArabicWords();
     });
 }
